@@ -1,0 +1,68 @@
+seed: 42
+seeds: [13, 21, 42, 87, 100]
+
+data:
+  evidence_vocab_size: 1024
+  candidate_pool_size: 100
+  max_sequence_length: 50
+  source_weights:
+    review: 0.3333333333
+    attribute: 0.3333333333
+    kg: 0.3333333334
+
+retriever:
+  hidden_dim: 64
+  num_layers: 2
+  num_heads: 2
+  dropout: 0.2
+
+matching:
+  neighbors: 4
+  contrast_sigma: 1.0
+
+mceb:
+  semantic_dim: 384
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 4
+  ffn_dim: 256
+  dropout: 0.1
+  evidence_budget: 5
+  gate_temperature: 0.67
+  hard_concrete_gamma: -0.1
+  hard_concrete_zeta: 1.1
+  pseudo_evidence_ratio: 0.25
+  stable_weight: 0.01
+  fake_weight: 0.01
+  rerank_temperature: 1.0
+
+reranker_training:
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  batch_size: 256
+  max_epochs: 50
+  patience: 5
+  gradient_clip: 1.0
+
+generation:
+  domain: book
+  model_name: meta-llama/Meta-Llama-3-8B-Instruct
+  teacher_model_name: meta-llama/Llama-3.1-70B-Instruct
+  semantic_encoder_name: sentence-transformers/all-MiniLM-L6-v2
+  lora_rank: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  learning_rate: 0.00002
+  batch_size: 16
+  epochs: 3
+  temperature: 0.2
+  top_p: 0.9
+  max_new_tokens: 80
+  max_input_tokens: 1024
+  competitor_count: 4
+  summary_evidence_count: 10
+  role_threshold: 0.01
+
+evaluation:
+  cutoffs: [5, 10, 20]
+  neighborhood_resamples: 10

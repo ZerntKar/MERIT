@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "merit-reproduction"
+version = "0.1.0"
+description = "Reproduction code for MERIT: Matched-Contrast Evidence Reranking"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "PyYAML>=6.0",
+  "torch>=2.2",
+  "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+generation = [
+  "accelerate>=0.30",
+  "datasets>=2.19",
+  "peft>=0.11",
+  "transformers>=4.42",
+]
+semantic = ["sentence-transformers>=3.0"]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+merit = "merit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
