@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "merit-reproduction"
+name = "merit-reranking"
 version = "0.1.0"
-description = "Reproduction code for MERIT: Matched-Contrast Evidence Reranking"
+description = "Experimental code for MERIT evidence-based reranking and explanation generation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -34,4 +34,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-

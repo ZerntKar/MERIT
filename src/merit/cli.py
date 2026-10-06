@@ -120,9 +120,9 @@ def smoke_test(config_path: str) -> dict[str, float]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MERIT reproduction utilities")
+    parser = argparse.ArgumentParser(description="MERIT experiment commands for training and generation")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    smoke = subparsers.add_parser("smoke-test", help="run a synthetic forward/backward check")
+    smoke = subparsers.add_parser("smoke-test", help="check model forward and backward passes")
     smoke.add_argument("--config", default="configs/merit.yaml")
     train = subparsers.add_parser("train-reranker", help="train MCEB on prepared JSONL")
     train.add_argument("--config", default="configs/merit.yaml")

@@ -1,8 +1,8 @@
-# MERIT Reproduction
+# MERIT Experimental Code
 
 ## Project Overview
 
-This project reproduces **MERIT: Matched-Contrast Evidence Reranking for Decision-Aligned Recommendation Explanations** and covers the following workflow:
+This repository contains the experimental implementation of **MERIT: Matched-Contrast Evidence Reranking for Decision-Aligned Recommendation Explanations**, including:
 
 - SASRec-based candidate item retrieval
 - Temporal splitting of training, validation, and test interactions
@@ -13,9 +13,9 @@ This project reproduces **MERIT: Matched-Contrast Evidence Reranking for Decisio
 - Contribution-difference computation and explanation content planning
 - Target explanation generation with a teacher LLM
 - Domain-specific Book, Movies&TV, and Yelp prompts for LoRA training and explanation generation with Llama-3-8B-Instruct
-- Recommendation, faithfulness, and feature-level evaluation metrics
+- Metric functions for recommendation ranking, decision faithfulness, and canonical feature sets
 
-The repository does not include the Book, Movies&TV, or Yelp datasets, Sentires-Guide weights, or Llama model weights.
+The commands below use structured JSONL interaction and item records with evidence fields.
 
 ## Project Structure
 
@@ -77,7 +77,7 @@ Install the generation and semantic-encoding dependencies:
 pip install -e '.[generation,semantic]'
 ```
 
-Run the synthetic smoke test:
+Run the model smoke test:
 
 ```bash
 merit smoke-test --config configs/merit.yaml
