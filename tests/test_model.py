@@ -1,7 +1,7 @@
 import torch
 
 from merit.config import MeritConfig
-from merit.losses import merit_loss
+from merit.losses import merit_loss, pseudo_evidence_loss, stability_loss
 from merit.model import MERITReranker, inject_pseudo_evidence
 from merit.retriever import SASRec, force_training_target_into_pool
 
@@ -90,3 +90,78 @@ def test_fixed_budget_and_strict_pseudo_reassignment():
     assert torch.all(labels[valid] != support_sources[valid])
     assert torch.all(labels[valid] != preference_sources[valid])
     assert torch.all(support_sources[valid] != preference_sources[valid])
+
+
+def test_pseudo_evidence_does_not_change_real_evidence_ranking():
+    torch.manual_seed(13)
+    config = MeritConfig()
+    config.data.candidate_pool_size = 4
+    config.mceb.semantic_dim = 6
+    config.mceb.hidden_dim = 16
+    config.mceb.num_heads = 4
+    config.mceb.ffn_dim = 32
+    config.mceb.evidence_budget = 3
+    model = MERITReranker(config).eval()
+    support = torch.rand(1, 4, 6)
+    preference = torch.rand(1, 6)
+    semantic = torch.rand(1, 6, 6)
+    matching = torch.rand(1, 4, 3)
+    candidate_mask = torch.ones(1, 4, dtype=torch.bool)
+    evidence_mask = torch.ones(1, 6, dtype=torch.bool)
+    clean = model(
+        support,
+        preference,
+        semantic,
+        matching,
+        candidate_mask,
+        evidence_mask,
+        augment_pseudo=False,
+        compute_stability=False,
+    )
+    augmented = model(
+        support,
+        preference,
+        semantic,
+        matching,
+        candidate_mask,
+        evidence_mask,
+        augment_pseudo=True,
+        compute_stability=False,
+    )
+    assert torch.allclose(clean.scores, augmented.scores)
+    assert torch.allclose(clean.contributions, augmented.contributions)
+    assert torch.allclose(clean.activation_probabilities, augmented.activation_probabilities)
+    assert augmented.augmented_probabilities is not None
+    assert augmented.augmented_probabilities.shape == augmented.fake_mask.shape
+    assert augmented.augmented_gate.shape == augmented.fake_mask.shape
+    assert augmented.fake_mask.any()
+    assert torch.isfinite(pseudo_evidence_loss(augmented))
+
+
+def test_dropout_does_not_create_stability_penalty_without_neighbor_change():
+    torch.manual_seed(17)
+    config = MeritConfig()
+    config.data.candidate_pool_size = 2
+    config.matching.neighbors = 1
+    config.mceb.semantic_dim = 6
+    config.mceb.hidden_dim = 16
+    config.mceb.num_heads = 4
+    config.mceb.ffn_dim = 32
+    config.mceb.evidence_budget = 1
+    config.mceb.dropout = 0.5
+    model = MERITReranker(config).train()
+    output = model(
+        torch.rand(1, 2, 3),
+        torch.rand(1, 3),
+        torch.rand(1, 3, 6),
+        torch.rand(1, 2, 3),
+        torch.ones(1, 2, dtype=torch.bool),
+        torch.ones(1, 3, dtype=torch.bool),
+        augment_pseudo=False,
+        compute_stability=True,
+    )
+    assert model.mceb.encoder.training
+    assert torch.equal(
+        output.stability_reference_probabilities, output.activation_probabilities
+    )
+    assert torch.allclose(stability_loss(output), torch.tensor(0.0), atol=1e-7)

@@ -16,19 +16,26 @@ def pool_listwise_loss(
 
 
 def stability_loss(output: RerankerOutput) -> torch.Tensor:
-    if output.stable_probabilities is None:
+    if (
+        output.stability_reference_probabilities is None
+        or output.stable_probabilities is None
+    ):
         return output.activation_probabilities.sum() * 0.0
-    difference = (output.activation_probabilities - output.stable_probabilities).abs()
+    difference = (
+        output.stability_reference_probabilities - output.stable_probabilities
+    ).abs()
     denominator = output.evidence_mask.sum(dim=-1).clamp_min(1)
     return ((difference * output.evidence_mask).sum(dim=-1) / denominator).mean()
 
 
 def pseudo_evidence_loss(output: RerankerOutput) -> torch.Tensor:
+    if output.augmented_probabilities is None:
+        return output.activation_probabilities.sum() * 0.0
     denominator = output.fake_mask.sum(dim=-1)
-    per_example = (output.activation_probabilities * output.fake_mask).sum(dim=-1)
+    per_example = (output.augmented_probabilities * output.fake_mask).sum(dim=-1)
     valid = denominator > 0
     if not valid.any():
-        return output.activation_probabilities.sum() * 0.0
+        return output.augmented_probabilities.sum() * 0.0
     return (per_example[valid] / denominator[valid]).mean()
 
 
@@ -44,4 +51,3 @@ def merit_loss(
     fake = pseudo_evidence_loss(output)
     total = pool + stable_weight * stable + fake_weight * fake
     return {"total": total, "pool": pool, "stable": stable, "fake": fake}
-

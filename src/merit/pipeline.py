@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -243,7 +244,9 @@ def materialize_merit_examples(
     output.parent.mkdir(parents=True, exist_ok=True)
     written = 0
     insufficient = 0
-    with output.open("w", encoding="utf-8") as handle:
+    with tempfile.TemporaryDirectory(dir=output.parent) as scratch, (
+        Path(scratch) / output.name
+    ).open("w", encoding="utf-8") as handle:
         for point in points:
             timestamp = int(point["timestamp"])
             # Strict inequality prevents the target interaction from entering its own evidence.
@@ -322,6 +325,14 @@ def materialize_merit_examples(
             }
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
             written += 1
+        if insufficient:
+            raise ValueError(
+                f"{insufficient} of {len(points)} examples have fewer than "
+                f"{config.mceb.evidence_budget} shared evidence dimensions; "
+                "apply a common eligibility filter to every method before evaluation"
+            )
+        handle.close()
+        (Path(scratch) / output.name).replace(output)
     return {
         "input_examples": len(points),
         "written_examples": written,

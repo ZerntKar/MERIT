@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 
 from merit.config import MeritConfig
@@ -168,3 +169,56 @@ def test_candidate_pool_preserves_true_target_score():
         assert target in row["candidate_ids"]
         assert abs(row["target_retrieval_score"] - expected) < 1e-6
         assert abs(row["retrieval_scores"][row["target_index"]] - expected) < 1e-6
+
+
+def test_insufficient_shared_evidence_rejects_entire_materialization():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        interactions = root / "interactions.jsonl"
+        items = root / "items.jsonl"
+        pools = root / "pools.jsonl"
+        vocabulary = root / "vocabulary.json"
+        embeddings = root / "embeddings.npy"
+        output = root / "merit.jsonl"
+        _write_jsonl(
+            interactions,
+            [
+                {
+                    "user_id": "u",
+                    "item_id": 1,
+                    "timestamp": 1,
+                    "positive_evidence": {"alpha": 1},
+                }
+            ],
+        )
+        _write_jsonl(
+            items,
+            [
+                {"item_id": item_id, "attribute_evidence": {"alpha": 1}}
+                for item_id in (1, 2)
+            ],
+        )
+        _write_jsonl(
+            pools,
+            [
+                {
+                    "user_id": "u",
+                    "timestamp": 2,
+                    "candidate_ids": [1, 2],
+                    "target_item": 2,
+                    "target_index": 1,
+                }
+            ],
+        )
+        vocabulary.write_text(json.dumps({"labels": ["alpha"]}), encoding="utf-8")
+        np.save(embeddings, np.ones((1, 2), dtype=np.float32))
+        output.write_text("previous output\n", encoding="utf-8")
+        config = MeritConfig()
+        config.data.candidate_pool_size = 2
+        config.mceb.semantic_dim = 2
+        config.mceb.evidence_budget = 2
+        with pytest.raises(ValueError, match="1 of 1 examples"):
+            materialize_merit_examples(
+                config, pools, interactions, items, vocabulary, embeddings, output
+            )
+        assert output.read_text(encoding="utf-8") == "previous output\n"

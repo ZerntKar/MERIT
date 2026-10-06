@@ -21,7 +21,10 @@ class RerankerOutput:
     evidence_mask: torch.Tensor
     fake_mask: torch.Tensor
     local_contrast: torch.Tensor
+    stability_reference_probabilities: torch.Tensor | None = None
     stable_probabilities: torch.Tensor | None = None
+    augmented_probabilities: torch.Tensor | None = None
+    augmented_gate: torch.Tensor | None = None
 
 
 class EvidenceBottleneck(nn.Module):
@@ -190,18 +193,6 @@ class MERITReranker(nn.Module):
         support = candidate_support
         preference = preference_strength
         semantic = semantic_embeddings
-        current_evidence_mask = evidence_mask
-        fake_mask = torch.zeros_like(evidence_mask)
-        if augment_pseudo and self.config.mceb.pseudo_evidence_ratio > 0:
-            support, preference, semantic, current_evidence_mask, fake_mask = inject_pseudo_evidence(
-                support,
-                preference,
-                semantic,
-                evidence_mask,
-                self.config.mceb.pseudo_evidence_ratio,
-                generator=generator,
-            )
-
         contrast, _, _ = build_local_contrast(
             support,
             matching_features,
@@ -209,19 +200,31 @@ class MERITReranker(nn.Module):
             self.config.matching.neighbors,
             self.config.matching.contrast_sigma,
         )
+        cpu_rng_state = torch.get_rng_state() if compute_stability and self.training else None
+        cuda_rng_state = (
+            torch.cuda.get_rng_state(support.device)
+            if cpu_rng_state is not None and support.is_cuda
+            else None
+        )
+        mps_rng_state = (
+            torch.mps.get_rng_state()
+            if cpu_rng_state is not None and support.device.type == "mps"
+            else None
+        )
         contextualized, gate, probabilities, selected = self.mceb(
             support,
             contrast,
             preference,
             semantic,
             candidate_mask,
-            current_evidence_mask,
+            evidence_mask,
         )
         evidence_weights = preference * gate
         # Candidate scores are additive contributions from the fixed-budget evidence set.
         contributions = support * evidence_weights.unsqueeze(1)
         scores = contributions.sum(dim=-1).masked_fill(~candidate_mask, -torch.inf)
 
+        stability_reference_probabilities = None
         stable_probabilities = None
         if compute_stability:
             # Selection probabilities should remain stable under matched-neighborhood resampling.
@@ -234,16 +237,70 @@ class MERITReranker(nn.Module):
                 resample=True,
                 generator=generator,
             )
-            _, stable_logits = self.mceb.encode(
-                support,
-                resampled_contrast,
-                preference,
-                semantic,
-                candidate_mask,
-                current_evidence_mask,
-            )
+            if cpu_rng_state is None:
+                _, stable_logits = self.mceb.encode(
+                    support,
+                    resampled_contrast,
+                    preference,
+                    semantic,
+                    candidate_mask,
+                    evidence_mask,
+                )
+            else:
+                # Replay ranking-pass dropout so only the matched neighborhoods differ.
+                with torch.random.fork_rng(devices=[support.device] if support.is_cuda else []):
+                    torch.set_rng_state(cpu_rng_state)
+                    if cuda_rng_state is not None:
+                        torch.cuda.set_rng_state(cuda_rng_state, support.device)
+                    current_mps_rng_state = None
+                    if mps_rng_state is not None:
+                        current_mps_rng_state = torch.mps.get_rng_state()
+                        torch.mps.set_rng_state(mps_rng_state)
+                    try:
+                        _, stable_logits = self.mceb.encode(
+                            support,
+                            resampled_contrast,
+                            preference,
+                            semantic,
+                            candidate_mask,
+                            evidence_mask,
+                        )
+                    finally:
+                        if current_mps_rng_state is not None:
+                            torch.mps.set_rng_state(current_mps_rng_state)
+            stability_reference_probabilities = probabilities
             stable_probabilities = self.mceb.gate.activation_probability(stable_logits)
-            stable_probabilities = stable_probabilities * current_evidence_mask
+            stable_probabilities = stable_probabilities * evidence_mask
+
+        fake_mask = torch.zeros_like(evidence_mask)
+        augmented_probabilities = None
+        augmented_gate = None
+        if augment_pseudo and self.config.mceb.pseudo_evidence_ratio > 0:
+            augmented_support, augmented_preference, augmented_semantic, augmented_mask, fake_mask = (
+                inject_pseudo_evidence(
+                    support,
+                    preference,
+                    semantic,
+                    evidence_mask,
+                    self.config.mceb.pseudo_evidence_ratio,
+                    generator=generator,
+                )
+            )
+            augmented_contrast, _, _ = build_local_contrast(
+                augmented_support,
+                matching_features,
+                candidate_mask,
+                self.config.matching.neighbors,
+                self.config.matching.contrast_sigma,
+            )
+            _, augmented_gate, augmented_probabilities, _ = self.mceb(
+                augmented_support,
+                augmented_contrast,
+                augmented_preference,
+                augmented_semantic,
+                candidate_mask,
+                augmented_mask,
+            )
 
         return RerankerOutput(
             scores=scores,
@@ -252,10 +309,13 @@ class MERITReranker(nn.Module):
             activation_probabilities=probabilities,
             selected_indices=selected,
             contextualized_evidence=contextualized,
-            evidence_mask=current_evidence_mask,
+            evidence_mask=evidence_mask,
             fake_mask=fake_mask,
             local_contrast=contrast,
+            stability_reference_probabilities=stability_reference_probabilities,
             stable_probabilities=stable_probabilities,
+            augmented_probabilities=augmented_probabilities,
+            augmented_gate=augmented_gate,
         )
 
 
